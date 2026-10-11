@@ -7,6 +7,7 @@ import reflex as rx
 from reflex_local_auth import LocalAuthState, routes
 
 from . import chat_repo
+from .game_invite import GameInviteState
 from .models import conversation_key
 
 # How long a client is considered "online" after its last heartbeat.
@@ -182,3 +183,12 @@ class DmRoomState(rx.State):
             return
         self.draft = ""
         return SharedDmState.send_message(content)
+
+    @rx.event
+    def invite(self, game: str):
+        """Invite the current conversation peer to play a game."""
+        try:
+            peer_id = int(self.peer_id)
+        except (TypeError, ValueError):
+            return
+        return GameInviteState.send_invite(game, peer_id)

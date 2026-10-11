@@ -4,6 +4,7 @@ import reflex_local_auth
 from . import pages
 from .dm_state import DmRoomState
 from .auth import LobbyState
+from .snake_game import SnakeRoomState
 
 app = rx.App()
 
@@ -26,6 +27,12 @@ app.add_page(
     on_load=pages.PatientsState.load,
 )
 app.add_page(pages.games_page, route="/games", title="遊戲")
+app.add_page(
+    pages.snake_page,
+    route="/play/snake/[peer_id]",
+    title="貪食蛇",
+    on_load=SnakeRoomState.on_load,
+)
 app.add_page(
     reflex_local_auth.pages.login_page,
     route=reflex_local_auth.routes.LOGIN_ROUTE,

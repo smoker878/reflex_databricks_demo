@@ -10,8 +10,16 @@ from .dm_state import (
     PresenceState,
     SharedDmState,
 )
+from .game_invite import GameBusState, GameInviteState
 from .models import Patient
 from .patient_repo import list_patients
+from .snake_game import (
+    GRID_W,
+    PULSE_MS,
+    TICK_MS,
+    SnakeGameState,
+    SnakeRoomState,
+)
 
 # Layout constants.
 NAVBAR_HEIGHT = "57px"
@@ -27,6 +35,108 @@ class PatientsState(rx.State):
     @rx.event
     def load(self):
         self.patients = list(list_patients())
+
+
+def invite_button() -> rx.Component:
+    """Dropdown in the conversation composer to invite the peer to a game."""
+    return rx.menu.root(
+        rx.menu.trigger(
+            rx.button(
+                rx.icon("gamepad-2", size=16),
+                "邀請遊戲",
+                variant="soft",
+                color_scheme="violet",
+            ),
+        ),
+        rx.menu.content(
+            rx.menu.item(
+                "貪食蛇（雙人對戰）",
+                on_select=DmRoomState.invite("snake"),
+            ),
+            rx.menu.item("坦克大戰（即將推出）", disabled=True),
+            rx.menu.item("西洋棋（即將推出）", disabled=True),
+            rx.menu.item("炸彈超人（即將推出）", disabled=True),
+        ),
+    )
+
+
+def invite_overlays() -> rx.Component:
+    """Global invitation dialog, sender status and background pollers."""
+    return rx.fragment(
+        rx.dialog.root(
+            rx.dialog.content(
+                rx.vstack(
+                    rx.dialog.title("遊戲邀請"),
+                    rx.dialog.description(
+                        f"{GameBusState.incoming_from} 邀請你玩 {GameBusState.incoming_game_title}"
+                    ),
+                    rx.hstack(
+                        rx.button(
+                            "接受",
+                            color_scheme="green",
+                            on_click=GameInviteState.accept_invite,
+                        ),
+                        rx.button(
+                            "拒絕",
+                            variant="soft",
+                            color_scheme="red",
+                            on_click=GameInviteState.decline_invite,
+                        ),
+                        spacing="3",
+                        justify="end",
+                        width="100%",
+                    ),
+                    spacing="4",
+                    width="100%",
+                ),
+                max_width="24em",
+            ),
+            open=GameBusState.has_incoming,
+        ),
+        rx.cond(
+            GameBusState.sent_status == "pending",
+            rx.box(
+                rx.callout(
+                    f"已邀請 {GameBusState.sent_target} 玩 {GameBusState.sent_game_title}，等待回應…",
+                    icon="send",
+                    color_scheme="violet",
+                ),
+                position="fixed",
+                bottom="1.5em",
+                right="1.5em",
+                z_index="1000",
+                max_width="20em",
+            ),
+        ),
+        rx.cond(
+            GameBusState.sent_status == "declined",
+            rx.box(
+                rx.callout(
+                    f"{GameBusState.sent_target} 拒絕了遊戲邀請。",
+                    icon="x",
+                    color_scheme="red",
+                ),
+                position="fixed",
+                bottom="1.5em",
+                right="1.5em",
+                z_index="1000",
+                max_width="20em",
+                on_click=GameInviteState.clear_invite,
+            ),
+        ),
+        # Keep every client linked to the global invitation channel.
+        rx.moment(
+            interval=2000,
+            on_change=GameInviteState.heartbeat,
+            style={"display": "none"},
+        ),
+        # Redirect both players once an invitation is accepted.
+        rx.moment(
+            interval=1000,
+            on_change=GameBusState.poll,
+            style={"display": "none"},
+        ),
+    )
 
 
 def navbar() -> rx.Component:
@@ -60,6 +170,7 @@ def navbar() -> rx.Component:
             ),
             rx.fragment(),
         ),
+        invite_overlays(),
         width="100%",
         height=NAVBAR_HEIGHT,
         padding="0.75em 1em",
@@ -282,6 +393,7 @@ def conversation() -> rx.Component:
                 placeholder="輸入訊息…",
                 width="100%",
             ),
+            invite_button(),
             rx.button("送出", on_click=DmRoomState.send),
             width="100%",
             spacing="3",
@@ -375,12 +487,17 @@ def patients_page() -> rx.Component:
     )
 
 
-def game_card(title: str, description: str) -> rx.Component:
+def game_card(
+    title: str,
+    description: str,
+    badge: str = "即將推出",
+    color: str = "amber",
+) -> rx.Component:
     return rx.card(
         rx.vstack(
             rx.heading(title, size="5"),
             rx.text(description, color_scheme="gray"),
-            rx.badge("即將推出", color_scheme="amber", variant="soft"),
+            rx.badge(badge, color_scheme=color, variant="soft"),
             spacing="2",
             align="start",
         ),
@@ -394,7 +511,17 @@ def games_page() -> rx.Component:
         rx.container(
             rx.vstack(
                 rx.heading("小遊戲", size="7"),
-                rx.text("互動遊戲將於下一版本推出。", color_scheme="gray"),
+                rx.text(
+                    "所有遊戲都是雙人對戰。到聊天視窗底部按「邀請遊戲」，"
+                    "對方接受後即可開戰。",
+                    color_scheme="gray",
+                ),
+                game_card(
+                    "貪食蛇",
+                    "經典雙人對戰：吃果實讓身體變長，先撞到牆或蛇身的人就輸了。",
+                    badge="可邀請對戰",
+                    color="green",
+                ),
                 game_card("坦克大戰", "即時對戰的坦克射擊遊戲。"),
                 game_card("西洋棋", "經典的雙人西洋棋對局。"),
                 game_card("炸彈超人", "放置炸彈、炸開障礙、擊敗對手。"),
@@ -404,6 +531,155 @@ def games_page() -> rx.Component:
             ),
             padding="1.5em",
             max_width="48em",
+        ),
+        width="100%",
+    )
+
+
+def cell_color(cell) -> rx.Component:
+    return rx.cond(
+        cell == "A",
+        rx.color("green", 11),
+        rx.cond(
+            cell == "a",
+            rx.color("green", 8),
+            rx.cond(
+                cell == "B",
+                rx.color("blue", 11),
+                rx.cond(
+                    cell == "b",
+                    rx.color("blue", 8),
+                    rx.cond(
+                        cell == "f",
+                        rx.color("orange", 9),
+                        rx.color("gray", 4),
+                    ),
+                ),
+            ),
+        ),
+    )
+
+
+def board_cell(cell, index) -> rx.Component:
+    return rx.box(
+        key=index,
+        width="100%",
+        aspect_ratio="1",
+        border_radius="2px",
+        background_color=cell_color(cell),
+    )
+
+
+def snake_board() -> rx.Component:
+    return rx.box(
+        rx.foreach(SnakeGameState.board, board_cell),
+        id="snake-board",
+        style={
+            "display": "grid",
+            "grid_template_columns": f"repeat({GRID_W}, 1fr)",
+            "gap": "2px",
+            "width": "100%",
+            "aspect_ratio": "1",
+            "padding": "0.5em",
+            "background_color": rx.color("gray", 2),
+            "border_radius": "12px",
+        },
+    )
+
+
+def player_score(name, score, color: str) -> rx.Component:
+    return rx.badge(
+        f"{name}：{score}",
+        color_scheme=color,
+        variant="soft",
+        size="3",
+    )
+
+
+def snake_status() -> rx.Component:
+    return rx.cond(
+        SnakeGameState.status == "waiting",
+        rx.callout("等待對手加入…", icon="clock", color_scheme="gray"),
+        rx.cond(
+            SnakeGameState.status == "countdown",
+            rx.center(
+                rx.heading(SnakeGameState.countdown, size="9"),
+                width="100%",
+                min_height="4em",
+            ),
+            rx.cond(
+                SnakeGameState.status == "over",
+                rx.vstack(
+                    rx.heading(SnakeGameState.winner_text, size="6", id="snake-winner"),
+                    rx.button(
+                        "再玩一次",
+                        on_click=SnakeGameState.restart,
+                        color_scheme="green",
+                    ),
+                    align="center",
+                    spacing="3",
+                ),
+                rx.text("對戰中！吃到果實可讓身體變長。", color_scheme="gray"),
+            ),
+        ),
+    )
+
+
+def snake_page() -> rx.Component:
+    return rx.vstack(
+        navbar(),
+        rx.container(
+            rx.vstack(
+                rx.hstack(
+                    rx.link(
+                        "← 返回聊天",
+                        href="/",
+                        font_size="0.9em",
+                        display=rx.breakpoints(initial="flex", md="none"),
+                    ),
+                    rx.heading(f"貪食蛇：{SnakeRoomState.peer_name}", size="6"),
+                    width="100%",
+                    align="center",
+                    spacing="3",
+                ),
+                rx.hstack(
+                    player_score(SnakeGameState.name_a, SnakeGameState.score_a, "green"),
+                    rx.text("VS", font_weight="bold", color_scheme="gray"),
+                    player_score(SnakeGameState.name_b, SnakeGameState.score_b, "blue"),
+                    spacing="3",
+                    align="center",
+                ),
+                snake_status(),
+                snake_board(),
+                rx.text(
+                    "用方向鍵（或 WASD）移動你的蛇。撞牆、撞到自己或對手就輸了。",
+                    font_size="0.8em",
+                    color_scheme="gray",
+                ),
+                spacing="4",
+                width="100%",
+                align="center",
+            ),
+            padding="1.5em",
+            max_width="34em",
+        ),
+        # Capture keyboard input for the local player's snake.
+        rx.window_event_listener(on_key_down=SnakeGameState.handle_key),
+        # Only the host client drives the game loop.
+        rx.cond(
+            SnakeGameState.i_am_host & (SnakeGameState.status != "over"),
+            rx.moment(
+                interval=TICK_MS,
+                on_change=SnakeGameState.tick,
+                style={"display": "none"},
+            ),
+            rx.fragment(),
+        ),
+        # Per-client liveness beacon so disconnects are detected.
+        rx.moment(
+            interval=PULSE_MS,
+            on_change=SnakeGameState.pulse,
+            style={"display": "none"},
         ),
         width="100%",
     )
