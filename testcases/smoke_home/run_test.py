@@ -29,7 +29,8 @@ def main() -> int:
 
         try:
             page.goto(base_url + "/", wait_until="domcontentloaded")
-            page.get_by_role("heading", name="Reflex Databricks Demo").wait_for()
+            # Unauthenticated visitors are redirected to the login page.
+            page.get_by_role("heading", name="Login into your Account").wait_for()
             page.screenshot(path=str(output_dir / "smoke.png"), full_page=True)
             return 0
         except Exception:

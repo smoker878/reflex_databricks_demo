@@ -6,6 +6,7 @@ load_dotenv()
 
 config = rx.Config(
 	app_name="reflex_databricks_demo",
+	db_url="sqlite:///reflex.db",
 	plugins=[rx.plugins.TailwindV3Plugin()],
 	disable_plugins=["reflex.plugins.sitemap.SitemapPlugin"],
 )

@@ -1,4 +1,6 @@
 reflex==0.8.24
+reflex-local-auth>=0.5.0,<0.6
+sqlmodel>=0.0.48,<0.1
 databricks-sql-connector>=4.6.0,<5
 databricks-sdk>=0.151.0,<0.152
 python-dotenv>=1.2.4,<2

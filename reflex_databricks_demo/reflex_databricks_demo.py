@@ -1,21 +1,38 @@
 import reflex as rx
+import reflex_local_auth
 
-
-class State(rx.State):
-    """The app state."""
-
-
-def index() -> rx.Component:
-    return rx.container(
-        rx.vstack(
-            rx.heading("Reflex Databricks Demo", size="9"),
-            rx.text("Blank Reflex project. Start building here."),
-            spacing="5",
-            justify="center",
-            min_height="85vh",
-        ),
-    )
-
+from . import pages
+from .dm_state import DmRoomState
+from .auth import LobbyState
 
 app = rx.App()
-app.add_page(index, route="/")
+
+app.add_page(
+    pages.lobby_page,
+    route="/",
+    title="聊天",
+    on_load=LobbyState.load_contacts,
+)
+app.add_page(
+    pages.dm_page,
+    route="/dm/[peer_id]",
+    title="聊天",
+    on_load=[LobbyState.load_contacts, DmRoomState.on_load],
+)
+app.add_page(
+    pages.patients_page,
+    route="/patients",
+    title="Patients",
+    on_load=pages.PatientsState.load,
+)
+app.add_page(pages.games_page, route="/games", title="遊戲")
+app.add_page(
+    reflex_local_auth.pages.login_page,
+    route=reflex_local_auth.routes.LOGIN_ROUTE,
+    title="登入",
+)
+app.add_page(
+    reflex_local_auth.pages.register_page,
+    route=reflex_local_auth.routes.REGISTER_ROUTE,
+    title="註冊",
+)
